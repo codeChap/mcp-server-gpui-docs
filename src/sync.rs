@@ -47,7 +47,50 @@ pub fn ensure_sources(cache: &Path) -> Result<String> {
             Err(e) => log.push(format!("[{}] ERROR: {e:#}", remote.id)),
         }
     }
+    match rebuild_oracle(cache) {
+        Ok(msg) => log.push(msg),
+        Err(e) => log.push(format!("[oracle] ERROR: {e:#}")),
+    }
     Ok(log.join("\n"))
+}
+
+pub fn zed_root(cache: &Path) -> PathBuf {
+    cache.join("src").join("zed-gpui")
+}
+
+pub fn gpui_crate(cache: &Path) -> PathBuf {
+    zed_root(cache).join("crates").join("gpui")
+}
+
+pub fn git_rev(dir: &Path) -> Result<String> {
+    let out = git_run(Some(dir), ["rev-parse", "HEAD"])?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+pub fn rebuild_oracle(cache: &Path) -> Result<String> {
+    let gpui = gpui_crate(cache);
+    if !gpui.join("src").is_dir() {
+        return Ok("[oracle] skipped (clone zed-gpui first)".into());
+    }
+    let commit = git_rev(&zed_root(cache)).unwrap_or_default();
+    let api = crate::api_index::build_api_index(&gpui, &commit)?;
+    crate::api_index::save(&api, &crate::api_index::index_path(cache))?;
+    let roots = [
+        ("zed-gpui".into(), zed_root(cache)),
+        ("tutorial".into(), cache.join("src").join("tutorial")),
+        (
+            "gpui-component".into(),
+            cache.join("src").join("gpui-component"),
+        ),
+    ];
+    let examples = crate::example_index::build_example_index(&roots);
+    crate::example_index::save(&examples, &crate::example_index::index_path(cache))?;
+    Ok(format!(
+        "[oracle] {} symbols, {} examples, zed {}",
+        api.symbols.len(),
+        examples.entries.len(),
+        &commit[..commit.len().min(12)]
+    ))
 }
 
 fn sync_one(cache: &Path, id: &str, url: &str, sparse: &[&str]) -> Result<String> {

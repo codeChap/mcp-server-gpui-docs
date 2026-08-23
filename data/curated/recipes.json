@@ -1,0 +1,20 @@
+[
+  {
+    "id": "window_open",
+    "title": "Boot a window with gpui_platform::application",
+    "tags": ["boot", "window", "app"],
+    "symbols": ["application", "App", "open_window", "Render", "div"]
+  },
+  {
+    "id": "entity_state",
+    "title": "Entity state + click handler + notify",
+    "tags": ["state", "entity", "on_click", "button"],
+    "symbols": ["Entity", "Context", "cx.new", "cx.notify", "on_click"]
+  },
+  {
+    "id": "uniform_list_usage",
+    "title": "uniform_list virtualized equal-height rows",
+    "tags": ["list", "virtual", "scroll"],
+    "symbols": ["uniform_list", "div", "px"]
+  }
+]

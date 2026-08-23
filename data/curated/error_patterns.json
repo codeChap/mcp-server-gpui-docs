@@ -1,0 +1,74 @@
+[
+  {
+    "id": "entity_update_e0599",
+    "regexes": ["E0599.*method named [`']update[`'].*Entity", "no method named [`']update[`']"],
+    "explanation": "Entity::update needs the right context type. Views use &mut Context<Self>; the app uses &mut App. You cannot call view methods as if they were free functions on Entity.",
+    "fix": "Inside impl Render / a listener, use this.field and cx.notify(), or entity.update(cx, |this, cx| { ... }). Do not mix App and Context<T>.",
+    "symbols": ["Entity", "Context", "App"],
+    "recipe": "entity_state"
+  },
+  {
+    "id": "app_vs_context",
+    "regexes": ["expected.*Context.*found.*App", "expected.*App.*found.*Context"],
+    "explanation": "GPUI has two contexts: App (process-wide) and Context<T> (a view). Window callbacks and Render get Context<Self>. application().run gets App.",
+    "fix": "In main: |cx: &mut App|. In Render: |cx: &mut Context<Self>|. Use cx.new in both; use cx.notify only on Context<T>.",
+    "symbols": ["App", "Context"],
+    "recipe": "window_open"
+  },
+  {
+    "id": "into_element",
+    "regexes": ["IntoElement is not implemented", "the trait bound.*IntoElement.*is not satisfied"],
+    "explanation": "render() must return impl IntoElement. div() and most GPUI elements implement it. A raw String works via child(); a custom struct needs impl IntoElement or impl RenderOnce.",
+    "fix": "Return div()... or wrap content with .child(...). Do not return the view struct itself.",
+    "symbols": ["IntoElement", "Render", "div"],
+    "recipe": "window_open"
+  },
+  {
+    "id": "missing_render",
+    "regexes": ["Render is not implemented", "the trait `Render` is not implemented"],
+    "explanation": "Window roots created with cx.new(|_| T) must impl Render.",
+    "fix": "impl Render for T { fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement { ... } }",
+    "symbols": ["Render"],
+    "recipe": "window_open"
+  },
+  {
+    "id": "nested_update",
+    "regexes": ["cannot borrow .* as mutable", "already borrowed"],
+    "explanation": "Nested entity.update / overlapping &mut Context is a common GPUI pitfall.",
+    "fix": "Clone the Entity handle, drop the inner borrow, then update. Or cx.defer(|this, cx| ...).",
+    "symbols": ["Entity", "Context"],
+    "recipe": "entity_state"
+  },
+  {
+    "id": "spawn_lifetime",
+    "regexes": ["does not live long enough", "cx\\.spawn"],
+    "explanation": "cx.spawn closures cannot keep &mut Context. Capture Entity (cheap handle) or WeakEntity.",
+    "fix": "let entity = cx.entity(); cx.spawn(async move |cx| { entity.update(&mut cx, |this, cx| { ... }) }).",
+    "symbols": ["Entity"],
+    "recipe": null
+  },
+  {
+    "id": "missing_styled",
+    "regexes": ["no method named [`']flex[`']", "no method named [`']bg[`']", "no method named [`']p_[0-9]+[`']"],
+    "explanation": "Tailwind-like methods live on the Styled trait (many are macro-generated). The receiver must be a GPUI element such as Div, not a raw struct.",
+    "fix": "Start from div() (or another element), import gpui::prelude::*, then chain .flex().bg(...). Call gpui_styled_methods for names.",
+    "symbols": ["Styled", "div"],
+    "recipe": "window_open"
+  },
+  {
+    "id": "send_spawn",
+    "regexes": ["E0277.*Send"],
+    "explanation": "Foreground vs background executor: not everything is Send. UI types often are not.",
+    "fix": "Keep GPUI types on the main executor. Use cx.background_spawn only for Send work, then bounce back with cx.spawn / notify.",
+    "symbols": ["App"],
+    "recipe": null
+  },
+  {
+    "id": "old_application_new",
+    "regexes": ["Application::new", "cannot find type `Application`", "unresolved import `gpui::Application`"],
+    "explanation": "Application::new() is stale tutorial API. Current Zed git uses gpui_platform::application().",
+    "fix": "use gpui_platform::application; application().run(|cx: &mut App| { ... });",
+    "symbols": ["App"],
+    "recipe": "window_open"
+  }
+]

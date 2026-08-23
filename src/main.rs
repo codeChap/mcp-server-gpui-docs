@@ -1,3 +1,7 @@
+mod api_index;
+mod curated;
+mod error_decoder;
+mod example_index;
 mod index;
 mod server;
 mod sources;
@@ -27,11 +31,20 @@ async fn main() -> Result<()> {
         println!("indexed {} documents", corpus.docs.len());
         return Ok(());
     }
+    if args.iter().any(|a| a == "--rebuild") {
+        println!("{}", sync::rebuild_oracle(&cache)?);
+        return Ok(());
+    }
     // Best-effort: index whatever is already on disk so startup stays fast.
     // Call the `sync` tool to clone/pull (or set GPUI_MCP_SYNC_ON_START=1).
     if std::env::var("GPUI_MCP_SYNC_ON_START").ok().as_deref() == Some("1") {
         if let Err(e) = ensure_sources(&cache) {
             eprintln!("gpui mcp sync on start failed: {e:#}");
+        }
+    }
+    if !api_index::index_path(&cache).exists() && sync::gpui_crate(&cache).join("src").is_dir() {
+        if let Err(e) = sync::rebuild_oracle(&cache) {
+            eprintln!("gpui mcp oracle rebuild: {e:#}");
         }
     }
     let corpus = Corpus::load(&cache);

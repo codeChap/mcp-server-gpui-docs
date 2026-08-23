@@ -17,11 +17,22 @@ Indexed sources (after `sync`):
 
 ## Tools
 
+Corpus (markdown + example files):
+
 - `list_sources` — counts
-- `search` — query (+ optional source)
-- `get` — full file by id
+- `search` / `get` — keyword docs
 - `list_examples` / `get_example`
-- `sync` — `git clone` / `pull` then reindex
+
+Oracle (from Zed `crates/gpui` source via `syn` — **prefer these**):
+
+- `gpui_scaffold` — Cargo.toml + `gpui_platform::application()` main
+- `gpui_recipe` — curated boot / entity / `uniform_list`
+- `gpui_symbol` / `gpui_search` / `gpui_type_methods` — signatures from source
+- `gpui_styled_methods` — `flex` / `bg` / padding (macro-generated)
+- `gpui_examples` / `gpui_list_examples` / `gpui_example_file` — examples that *use* a symbol
+- `gpui_decode_error` — paste rustc output
+- `gpui_status` — index freshness
+- `sync` — clone/pull **and** rebuild the oracle (`--rebuild` on the CLI rebuilds only the oracle)
 
 Cache: `~/.cache/mcp-server-gpui-docs` (override `GPUI_MCP_CACHE` or `XDG_CACHE_HOME`). `HOME` or `GPUI_MCP_CACHE` is required — the server will not use `/tmp`.  
 Gotchas are compiled into the binary (`include_str!`), so `cargo install` still serves them.  
