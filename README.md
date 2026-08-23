@@ -1,6 +1,8 @@
-# mcp-server-gpui
+# mcp-server-gpui-docs
 
-Local **stdio MCP** so an agent can **search and read GPUI docs/examples** instead of guessing APIs.
+Local **stdio MCP** that indexes **GPUI documentation and examples** so an agent can search them instead of guessing APIs.
+
+This is not a GPUI runtime. It clones/pulls public GPUI sources and serves `search` / `get` over MCP.
 
 Indexed sources (after `sync`):
 
@@ -21,7 +23,7 @@ Indexed sources (after `sync`):
 - `list_examples` / `get_example`
 - `sync` — `git clone` / `pull` then reindex
 
-Cache: `~/.cache/mcp-server-gpui` (override `GPUI_MCP_CACHE`).  
+Cache: `~/.cache/mcp-server-gpui-docs` (override `GPUI_MCP_CACHE`).  
 Set `GPUI_MCP_SYNC_ON_START=1` to clone on launch (slow first time; zed is sparse).
 
 ## Build
@@ -32,21 +34,21 @@ Needs Rust (edition 2024) and `git` on `PATH`.
 cargo build --release
 ```
 
-Binary: `target/release/mcp-server-gpui`
+Binary: `target/release/mcp-server-gpui-docs`
 
 Or:
 
 ```bash
-cargo install --git https://github.com/codeChap/mcp-server-gpui
+cargo install --git https://github.com/codeChap/mcp-server-gpui-docs
 ```
 
 ## MCP config (Grok / Claude / similar)
 
-Point the client at the built binary (stdio):
+Point the client at the built binary (stdio). Server id can stay `gpui`:
 
 ```toml
 [mcp_servers.gpui]
-command = "/path/to/mcp-server-gpui"
+command = "/path/to/mcp-server-gpui-docs"
 enabled = true
 startup_timeout_sec = 60
 ```

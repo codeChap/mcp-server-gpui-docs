@@ -1,5 +1,5 @@
 [package]
-name = "mcp-server-gpui"
+name = "mcp-server-gpui-docs"
 version = "0.1.0"
 edition = "2024"
 description = "MCP server: search GPUI docs, book, tutorial, and official examples"

@@ -47,7 +47,7 @@ pub fn cache_dir() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".cache").join("mcp-server-gpui")
+    PathBuf::from(home).join(".cache").join("mcp-server-gpui-docs")
 }
 
 pub fn repo_dir(cache: &Path, id: &str) -> PathBuf {
