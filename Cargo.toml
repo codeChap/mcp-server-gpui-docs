@@ -5,8 +5,8 @@ edition = "2024"
 description = "MCP server: search GPUI docs, book, tutorial, and official examples"
 
 [dependencies]
-rmcp = { version = "=1.8.0", features = ["server", "transport-io"] }
-tokio = { version = "1", features = ["full"] }
+rmcp = { version = "1.8.0", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 serde = { version = "1", features = ["derive"] }
 schemars = "1"
 anyhow = "1"

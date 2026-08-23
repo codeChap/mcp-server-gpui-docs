@@ -23,8 +23,9 @@ Indexed sources (after `sync`):
 - `list_examples` / `get_example`
 - `sync` — `git clone` / `pull` then reindex
 
-Cache: `~/.cache/mcp-server-gpui-docs` (override `GPUI_MCP_CACHE`).  
-Set `GPUI_MCP_SYNC_ON_START=1` to clone on launch (slow first time; zed is sparse).
+Cache: `~/.cache/mcp-server-gpui-docs` (override `GPUI_MCP_CACHE` or `XDG_CACHE_HOME`). `HOME` or `GPUI_MCP_CACHE` is required — the server will not use `/tmp`.  
+Gotchas are compiled into the binary (`include_str!`), so `cargo install` still serves them.  
+Set `GPUI_MCP_SYNC_ON_START=1` to clone on launch (slow first time; zed is sparse). `sync` writes to the cache (git clone/pull).
 
 ## Build
 

@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let cache = cache_dir();
+    let cache = cache_dir()?;
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--sync") {
         println!("{}", ensure_sources(&cache)?);
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         cache.display()
     );
 
-    let service = GpuiServer::new(corpus).serve(stdio()).await?;
+    let service = GpuiServer::new(corpus, cache).serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }

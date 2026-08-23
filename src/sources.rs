@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use anyhow::{bail, Result};
+
 #[derive(Clone, Copy, Debug)]
 pub struct Remote {
     pub id: &'static str,
@@ -42,18 +44,57 @@ pub const REMOTES: &[Remote] = &[
     },
 ];
 
-pub fn cache_dir() -> PathBuf {
+pub fn cache_dir() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("GPUI_MCP_CACHE") {
-        return PathBuf::from(p);
+        let p = PathBuf::from(p);
+        if p.as_os_str().is_empty() {
+            bail!("GPUI_MCP_CACHE is empty");
+        }
+        return Ok(p);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".cache").join("mcp-server-gpui-docs")
+    if let Ok(xdg) = std::env::var("XDG_CACHE_HOME") {
+        if !xdg.is_empty() {
+            return Ok(PathBuf::from(xdg).join("mcp-server-gpui-docs"));
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            return Ok(PathBuf::from(home).join(".cache").join("mcp-server-gpui-docs"));
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        if !local.is_empty() {
+            return Ok(PathBuf::from(local).join("mcp-server-gpui-docs"));
+        }
+    }
+    bail!("set GPUI_MCP_CACHE or HOME (refusing world-writable /tmp as a cache)");
 }
 
-pub fn repo_dir(cache: &Path, id: &str) -> PathBuf {
-    cache.join("src").join(id)
+pub fn repo_dir(cache: &Path, id: &str) -> Result<PathBuf> {
+    if !is_safe_source_id(id) {
+        bail!("invalid source id {id:?}");
+    }
+    Ok(cache.join("src").join(id))
 }
 
-pub fn bundled_gotchas() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gotchas.md")
+pub fn is_safe_source_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.starts_with('-')
+        && !id.contains("..")
+        && !id.contains('/')
+        && !id.contains('\\')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_traversal_ids() {
+        assert!(!is_safe_source_id("../x"));
+        assert!(!is_safe_source_id("a/b"));
+        assert!(!is_safe_source_id("-evil"));
+        assert!(is_safe_source_id("book"));
+    }
+
 }
