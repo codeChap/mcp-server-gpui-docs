@@ -1,0 +1,19 @@
+[package]
+name = "mcp-server-gpui"
+version = "0.1.0"
+edition = "2024"
+description = "MCP server: search GPUI docs, book, tutorial, and official examples"
+
+[dependencies]
+rmcp = { version = "=1.8.0", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+schemars = "1"
+anyhow = "1"
+walkdir = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+strip = true
