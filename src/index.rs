@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use walkdir::WalkDir;
 
-use crate::sources::{repo_dir, Remote, REMOTES};
+use crate::sources::{REMOTES, Remote, repo_dir};
 
 const GOTCHAS_BODY: &str = include_str!("../gotchas.md");
 
@@ -142,6 +142,20 @@ pub fn normalize_id(id: &str) -> String {
     id.trim().replace('\\', "/")
 }
 
+pub fn rel_unix(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+pub fn title_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled")
+        .replace('_', " ")
+}
+
 fn ingest_tree(docs: &mut Vec<Doc>, remote: &Remote, root: &Path) {
     for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -159,11 +173,7 @@ fn ingest_tree(docs: &mut Vec<Doc>, remote: &Remote, root: &Path) {
         let Some(kind) = classify(remote.id, &rel_s, ext) else {
             continue;
         };
-        let title = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("untitled")
-            .replace('_', " ");
+        let title = title_from_path(path);
         let id = format!("{}/{}", remote.id, rel_s);
         push_file(docs, &id, remote.id, kind, &title, path);
     }
@@ -245,7 +255,13 @@ mod tests {
     fn search_ranks_title_hits() {
         let c = corpus(vec![
             doc("book/a.md", "book", "doc", "Entity notify", "other text"),
-            doc("book/b.md", "book", "doc", "unrelated", "entity appears in body"),
+            doc(
+                "book/b.md",
+                "book",
+                "doc",
+                "unrelated",
+                "entity appears in body",
+            ),
         ]);
         let hits = c.search("entity", None, 8);
         assert_eq!(hits[0].1.id, "book/a.md");
@@ -315,5 +331,17 @@ mod tests {
     #[test]
     fn gotchas_are_embedded() {
         assert!(GOTCHAS_BODY.contains("gpui_platform"));
+    }
+
+    #[test]
+    fn title_from_path_replaces_underscores() {
+        assert_eq!(title_from_path(Path::new("hello_world.rs")), "hello world");
+    }
+
+    #[test]
+    fn rel_unix_strips_root() {
+        let root = Path::new("/cache/src");
+        let path = Path::new("/cache/src/book/foo.md");
+        assert_eq!(rel_unix(path, root), "book/foo.md");
     }
 }

@@ -7,6 +7,7 @@ use syn::{Expr, UseTree};
 use walkdir::WalkDir;
 
 use crate::api_index::INDEX_SCHEMA_VERSION;
+use crate::index::{rel_unix, title_from_path};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ExampleEntry {
@@ -41,13 +42,7 @@ pub fn index_path(cache: &Path) -> PathBuf {
 }
 
 pub fn save(index: &ExampleIndex, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(index)?)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    crate::persist::save_json(path, index)
 }
 
 pub fn load(path: &Path) -> Result<ExampleIndex> {
@@ -68,63 +63,47 @@ pub fn build_example_index(roots: &[(String, PathBuf)]) -> ExampleIndex {
             if !entry.file_type().is_file() {
                 continue;
             }
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                continue;
+            if let Some(e) = try_example_entry(source, root, entry.path()) {
+                entries.push(e);
             }
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            if rel.contains("/target/") || rel.contains("/.git/") {
-                continue;
-            }
-            let is_example = rel.contains("examples/") || source == "tutorial";
-            if !is_example {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(path) else {
-                continue;
-            };
-            let Ok(file) = syn::parse_file(&text) else {
-                continue;
-            };
-            let mut v = Collector::default();
-            v.visit_file(&file);
-            let title = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("untitled")
-                .replace('_', " ");
-            let mut types: Vec<_> = v.types.into_iter().collect();
-            types.sort();
-            let mut methods: Vec<_> = v.methods.into_iter().collect();
-            methods.sort();
-            entries.push(ExampleEntry {
-                source: source.clone(),
-                path: format!("{source}/{rel}"),
-                title,
-                types_used: types,
-                methods_used: methods,
-                loc: text.lines().count(),
-                has_main: v.has_main,
-            });
         }
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     ExampleIndex {
         schema_version: INDEX_SCHEMA_VERSION,
-        built_at: stamp(),
+        built_at: crate::persist::unix_stamp(),
         entries,
     }
 }
 
-fn stamp() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("unix:{}", d.as_secs()))
-        .unwrap_or_else(|_| "unknown".into())
+fn try_example_entry(source: &str, root: &Path, path: &Path) -> Option<ExampleEntry> {
+    if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return None;
+    }
+    let rel = rel_unix(path, root);
+    if rel.contains("/target/") || rel.contains("/.git/") {
+        return None;
+    }
+    if !(rel.contains("examples/") || source == "tutorial") {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let file = syn::parse_file(&text).ok()?;
+    let mut v = Collector::default();
+    v.visit_file(&file);
+    let mut types: Vec<_> = v.types.into_iter().collect();
+    types.sort();
+    let mut methods: Vec<_> = v.methods.into_iter().collect();
+    methods.sort();
+    Some(ExampleEntry {
+        source: source.to_string(),
+        path: format!("{source}/{rel}"),
+        title: title_from_path(path),
+        types_used: types,
+        methods_used: methods,
+        loc: text.lines().count(),
+        has_main: v.has_main,
+    })
 }
 
 #[derive(Default)]
@@ -209,11 +188,6 @@ fn collect_use(tree: &UseTree, types: &mut std::collections::HashSet<String>) {
     }
 }
 
-#[allow(dead_code)]
-pub fn find_examples<'a>(idx: &'a ExampleIndex, symbol: &str, limit: usize) -> Vec<&'a ExampleEntry> {
-    find_examples_multi(idx, &[symbol.to_string()], limit)
-}
-
 pub fn find_examples_multi<'a>(
     idx: &'a ExampleIndex,
     symbols: &[String],
@@ -274,8 +248,9 @@ fn score_one(e: &ExampleEntry, symbol: &str) -> (i32, bool) {
 pub fn get_file<'a>(idx: &'a ExampleIndex, name: &str) -> Option<&'a ExampleEntry> {
     let q = name.to_lowercase();
     idx.entries.iter().find(|e| {
-        e.path.to_lowercase().ends_with(&format!("/{q}"))
-            || e.path.to_lowercase().ends_with(&format!("/{q}.rs"))
+        let p = e.path.to_lowercase();
+        p.ends_with(&format!("/{q}"))
+            || p.ends_with(&format!("/{q}.rs"))
             || Path::new(&e.path)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -305,11 +280,17 @@ mod tests {
             schema_version: 1,
             built_at: String::new(),
             entries: vec![
-                e("zed-gpui/examples/hello_world.rs", &["App"], &["flex"], 80, true),
+                e(
+                    "zed-gpui/examples/hello_world.rs",
+                    &["App"],
+                    &["flex"],
+                    80,
+                    true,
+                ),
                 e("zed-gpui/src/styled.rs", &[], &[], 2000, false),
             ],
         };
-        let hits = find_examples(&idx, "flex", 5);
+        let hits = find_examples_multi(&idx, &["flex".into()], 5);
         assert_eq!(hits[0].path, "zed-gpui/examples/hello_world.rs");
     }
 }

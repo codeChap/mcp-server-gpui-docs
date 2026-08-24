@@ -2,11 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use rmcp::{
-    ErrorData as McpError, ServerHandler,
-    handler::server::tool::ToolRouter,
-    handler::server::wrapper::Parameters,
-    model::*,
-    tool, tool_handler, tool_router,
+    ErrorData as McpError, ServerHandler, handler::server::tool::ToolRouter,
+    handler::server::wrapper::Parameters, model::*, tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -18,6 +15,9 @@ use crate::example_index::{self, ExampleIndex};
 use crate::index::Corpus;
 use crate::sources::REMOTES;
 use crate::sync::ensure_sources;
+
+mod examples;
+use examples::{BODY_LIMIT, clip, example_payload};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchParams {
@@ -41,7 +41,9 @@ pub struct GetParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExampleParams {
-    #[schemars(description = "Substring of an example id or filename, e.g. hello_world, drag_drop, dock")]
+    #[schemars(
+        description = "Substring of an example id or filename, e.g. hello_world, drag_drop, dock"
+    )]
     pub name: String,
 }
 
@@ -49,7 +51,9 @@ pub struct ExampleParams {
 pub struct SymbolParams {
     #[schemars(description = "Symbol name, e.g. Render, Entity, uniform_list, div")]
     pub name: String,
-    #[schemars(description = "Optional kind: Struct | Enum | Trait | TraitMethod | Method | Fn | TypeAlias | Const | Macro")]
+    #[schemars(
+        description = "Optional kind: Struct | Enum | Trait | TraitMethod | Method | Fn | TypeAlias | Const | Macro"
+    )]
     pub kind: Option<String>,
 }
 
@@ -67,7 +71,9 @@ pub struct StyledParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SymbolsParams {
-    #[schemars(description = "GPUI symbols to find examples for, e.g. [\"uniform_list\", \"div\"]")]
+    #[schemars(
+        description = "GPUI symbols to find examples for, e.g. [\"uniform_list\", \"div\"]"
+    )]
     pub symbols: Vec<String>,
     pub limit: Option<u32>,
 }
@@ -97,11 +103,32 @@ pub struct TypeMethodsParams {
 }
 
 #[derive(Clone)]
+struct SwapArc<T> {
+    inner: Arc<Mutex<Arc<T>>>,
+}
+
+impl<T> SwapArc<T> {
+    fn new(value: T) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Arc::new(value))),
+        }
+    }
+
+    fn get(&self) -> Arc<T> {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    fn set(&self, value: T) {
+        *self.inner.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(value);
+    }
+}
+
+#[derive(Clone)]
 pub struct GpuiServer {
     cache: PathBuf,
-    corpus: Arc<Mutex<Arc<Corpus>>>,
-    api: Arc<Mutex<Arc<ApiIndex>>>,
-    examples: Arc<Mutex<Arc<ExampleIndex>>>,
+    corpus: SwapArc<Corpus>,
+    api: SwapArc<ApiIndex>,
+    examples: SwapArc<ExampleIndex>,
     curated: Arc<Curated>,
     tool_router: ToolRouter<Self>,
 }
@@ -114,20 +141,6 @@ fn err(msg: impl Into<String>) -> CallToolResult {
     CallToolResult::error(vec![Content::text(msg.into())])
 }
 
-pub(crate) fn clip(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        return s.to_string();
-    }
-    let mut end = max.min(s.len());
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!(
-        "{}…\n\n[truncated — call get with this id for the full file]",
-        &s[..end]
-    )
-}
-
 #[tool_router]
 impl GpuiServer {
     pub fn new(corpus: Corpus, cache: PathBuf) -> Self {
@@ -135,37 +148,19 @@ impl GpuiServer {
         let examples = example_index::load_or_empty(&cache);
         Self {
             cache,
-            corpus: Arc::new(Mutex::new(Arc::new(corpus))),
-            api: Arc::new(Mutex::new(Arc::new(api))),
-            examples: Arc::new(Mutex::new(Arc::new(examples))),
+            corpus: SwapArc::new(corpus),
+            api: SwapArc::new(api),
+            examples: SwapArc::new(examples),
             curated: Arc::new(Curated::load()),
             tool_router: Self::tool_router(),
         }
-    }
-
-    fn snapshot(&self) -> Arc<Corpus> {
-        self.corpus
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
-    }
-
-    fn api(&self) -> Arc<ApiIndex> {
-        self.api.lock().unwrap_or_else(|p| p.into_inner()).clone()
-    }
-
-    fn example_idx(&self) -> Arc<ExampleIndex> {
-        self.examples
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
     }
 
     #[tool(
         description = "List indexed GPUI sources (book, tutorial, zed examples, gpui-component) and document counts. Call this first if search returns nothing — you may need sync."
     )]
     async fn list_sources(&self) -> Result<CallToolResult, McpError> {
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         let mut lines = vec![format!(
             "{} documents in {}",
             corpus.docs.len(),
@@ -192,7 +187,7 @@ impl GpuiServer {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         let limit = p.limit.unwrap_or(8).clamp(1, 20) as usize;
         let hits = corpus.search(&p.query, p.source.as_deref(), limit);
         if hits.is_empty() {
@@ -220,14 +215,14 @@ impl GpuiServer {
 
     #[tool(description = "Read a full indexed GPUI doc or example by id from search.")]
     async fn get(&self, Parameters(p): Parameters<GetParams>) -> Result<CallToolResult, McpError> {
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         match corpus.get(&p.id) {
             Some(d) => Ok(ok(format!(
                 "# {} ({})\n# {}\n\n{}",
                 d.id,
                 d.kind,
                 d.path.display(),
-                clip(&d.body, 24_000)
+                clip(&d.body, BODY_LIMIT)
             ))),
             None => Ok(err(format!(
                 "Unknown id {:?}. Search first; ids look like book/src/elements/div.md",
@@ -238,7 +233,7 @@ impl GpuiServer {
 
     #[tool(description = "List official / tutorial GPUI example .rs files.")]
     async fn list_examples(&self) -> Result<CallToolResult, McpError> {
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         let lines: Vec<String> = corpus
             .examples()
             .into_iter()
@@ -250,12 +245,14 @@ impl GpuiServer {
         Ok(ok(lines.join("\n")))
     }
 
-    #[tool(description = "Open one example by name substring (hello_world, input, uniform_list, dock…).")]
+    #[tool(
+        description = "Open one example by name substring (hello_world, input, uniform_list, dock…)."
+    )]
     async fn get_example(
         &self,
         Parameters(p): Parameters<ExampleParams>,
     ) -> Result<CallToolResult, McpError> {
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         match example_payload(&corpus, &p.name) {
             Ok(msg) => Ok(ok(msg)),
             Err(msg) => Ok(err(msg)),
@@ -269,7 +266,7 @@ impl GpuiServer {
         &self,
         Parameters(p): Parameters<SymbolParams>,
     ) -> Result<CallToolResult, McpError> {
-        let api = self.api();
+        let api = self.api.get();
         let hits = api_index::lookup(&api, &p.name, p.kind.as_deref(), 8);
         if hits.is_empty() {
             return Ok(err(format!(
@@ -290,7 +287,11 @@ impl GpuiServer {
                 s.signature,
                 s.file,
                 s.line,
-                if s.generated { " [macro-generated]" } else { "" },
+                if s.generated {
+                    " [macro-generated]"
+                } else {
+                    ""
+                },
                 s.doc
             ));
         }
@@ -302,7 +303,7 @@ impl GpuiServer {
         &self,
         Parameters(p): Parameters<QueryLimit>,
     ) -> Result<CallToolResult, McpError> {
-        let api = self.api();
+        let api = self.api.get();
         let limit = p.limit.unwrap_or(10).clamp(1, 40) as usize;
         let hits = api_index::lookup(&api, &p.query, None, limit);
         if hits.is_empty() {
@@ -326,12 +327,14 @@ impl GpuiServer {
         Ok(ok(lines.join("\n")))
     }
 
-    #[tool(description = "List Styled / Tailwind-like chain methods (flex, bg, p, gap…). Many are macro-generated.")]
+    #[tool(
+        description = "List Styled / Tailwind-like chain methods (flex, bg, p, gap…). Many are macro-generated."
+    )]
     async fn gpui_styled_methods(
         &self,
         Parameters(p): Parameters<StyledParams>,
     ) -> Result<CallToolResult, McpError> {
-        let api = self.api();
+        let api = self.api.get();
         let f = p.filter.unwrap_or_default().to_lowercase();
         let mut rows: Vec<_> = api
             .symbols
@@ -350,12 +353,14 @@ impl GpuiServer {
         Ok(ok(lines.join("\n")))
     }
 
-    #[tool(description = "Find runnable GPUI examples that use the given symbols (parsed from .rs, not filename grep).")]
+    #[tool(
+        description = "Find runnable GPUI examples that use the given symbols (parsed from .rs, not filename grep)."
+    )]
     async fn gpui_examples(
         &self,
         Parameters(p): Parameters<SymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let idx = self.example_idx();
+        let idx = self.examples.get();
         let limit = p.limit.unwrap_or(3).clamp(1, 12) as usize;
         let hits = example_index::find_examples_multi(&idx, &p.symbols, limit);
         if hits.is_empty() {
@@ -371,8 +376,18 @@ impl GpuiServer {
                     "{} ({})\n  types: {}\n  methods: {}",
                     e.path,
                     if e.has_main { "runnable" } else { "lib" },
-                    e.types_used.iter().take(12).cloned().collect::<Vec<_>>().join(", "),
-                    e.methods_used.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
+                    e.types_used
+                        .iter()
+                        .take(12)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    e.methods_used
+                        .iter()
+                        .take(12)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             })
             .collect();
@@ -384,17 +399,13 @@ impl GpuiServer {
         &self,
         Parameters(p): Parameters<ExampleParams>,
     ) -> Result<CallToolResult, McpError> {
-        let idx = self.example_idx();
+        let idx = self.examples.get();
         let Some(e) = example_index::get_file(&idx, &p.name) else {
             return Ok(err(format!("No example file {:?}", p.name)));
         };
-        let corpus = self.snapshot();
+        let corpus = self.corpus.get();
         if let Some(d) = corpus.get(&e.path) {
-            return Ok(ok(format!(
-                "# {}\n\n{}",
-                d.id,
-                clip(&d.body, 24_000)
-            )));
+            return Ok(ok(format!("# {}\n\n{}", d.id, clip(&d.body, BODY_LIMIT))));
         }
         Ok(ok(format!(
             "{}\n(types: {})\nCall get with id {} after sync if body is missing.",
@@ -406,7 +417,7 @@ impl GpuiServer {
 
     #[tool(description = "List example .rs files from the parsed example index.")]
     async fn gpui_list_examples(&self) -> Result<CallToolResult, McpError> {
-        let idx = self.example_idx();
+        let idx = self.examples.get();
         if idx.entries.is_empty() {
             return Ok(err("Example index empty. Call sync."));
         }
@@ -418,7 +429,9 @@ impl GpuiServer {
         Ok(ok(lines.join("\n")))
     }
 
-    #[tool(description = "Curated GPUI recipes (boot, entity state, uniform_list). Prefer these over stale tutorials.")]
+    #[tool(
+        description = "Curated GPUI recipes (boot, entity state, uniform_list). Prefer these over stale tutorials."
+    )]
     async fn gpui_recipe(
         &self,
         Parameters(p): Parameters<RecipeParams>,
@@ -440,7 +453,9 @@ impl GpuiServer {
             return Ok(ok(format!("# {} — {}\n\n{}", r.id, r.title, r.code)));
         }
         if hits.is_empty() {
-            return Ok(err("No recipes matched. Try window_open, entity_state, uniform_list_usage."));
+            return Ok(err(
+                "No recipes matched. Try window_open, entity_state, uniform_list_usage.",
+            ));
         }
         let list: Vec<_> = hits
             .iter()
@@ -449,7 +464,9 @@ impl GpuiServer {
         Ok(ok(list.join("\n")))
     }
 
-    #[tool(description = "Minimal GPUI app scaffold: Cargo.toml + main.rs using gpui_platform::application().")]
+    #[tool(
+        description = "Minimal GPUI app scaffold: Cargo.toml + main.rs using gpui_platform::application()."
+    )]
     async fn gpui_scaffold(
         &self,
         Parameters(p): Parameters<ScaffoldParams>,
@@ -465,15 +482,19 @@ impl GpuiServer {
         )))
     }
 
-    #[tool(description = "Decode a rustc error about GPUI (Entity/Context, Styled, Application::new, IntoElement…).")]
+    #[tool(
+        description = "Decode a rustc error about GPUI (Entity/Context, Styled, Application::new, IntoElement…)."
+    )]
     async fn gpui_decode_error(
         &self,
         Parameters(p): Parameters<ErrorParams>,
     ) -> Result<CallToolResult, McpError> {
-        let api = self.api();
+        let api = self.api.get();
         let diags = error_decoder::decode(&p.error, &api);
         if diags.is_empty() {
-            return Ok(err("No diagnosis. Try gpui_symbol on the type named in the error."));
+            return Ok(err(
+                "No diagnosis. Try gpui_symbol on the type named in the error.",
+            ));
         }
         let mut out = String::new();
         for d in diags {
@@ -494,18 +515,26 @@ impl GpuiServer {
 
     #[tool(description = "Oracle status: zed commit, symbol/example counts, missing clones.")]
     async fn gpui_status(&self) -> Result<CallToolResult, McpError> {
-        let api = self.api();
-        let ex = self.example_idx();
-        let corpus = self.snapshot();
+        let api = self.api.get();
+        let ex = self.examples.get();
+        let corpus = self.corpus.get();
         Ok(ok(format!(
             "cache: {}\nzed commit: {}\ngpui crate version: {}\napi symbols: {}\nexamples indexed: {}\nmarkdown docs: {}\nmissing clones: {}\nschema: {}\nbuilt_at: {}\nCall sync if symbols are 0.",
             self.cache.display(),
-            if api.zed_commit.is_empty() { "(none)" } else { &api.zed_commit },
+            if api.zed_commit.is_empty() {
+                "(none)"
+            } else {
+                &api.zed_commit
+            },
             api.gpui_version,
             api.symbols.len(),
             ex.entries.len(),
             corpus.docs.len(),
-            if corpus.missing.is_empty() { "none".into() } else { corpus.missing.join(", ") },
+            if corpus.missing.is_empty() {
+                "none".into()
+            } else {
+                corpus.missing.join(", ")
+            },
             api.schema_version,
             api.built_at
         )))
@@ -516,7 +545,7 @@ impl GpuiServer {
         &self,
         Parameters(p): Parameters<TypeMethodsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let api = self.api();
+        let api = self.api.get();
         Ok(ok(api_index::methods_for_type(
             &api,
             &p.type_name,
@@ -535,76 +564,11 @@ impl GpuiServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let fresh = Corpus::load(&self.cache);
         let n = fresh.docs.len();
-        *self.corpus.lock().unwrap_or_else(|p| p.into_inner()) = Arc::new(fresh);
-        *self.api.lock().unwrap_or_else(|p| p.into_inner()) =
-            Arc::new(api_index::load_or_empty(&self.cache));
-        *self.examples.lock().unwrap_or_else(|p| p.into_inner()) =
-            Arc::new(example_index::load_or_empty(&self.cache));
+        self.corpus.set(fresh);
+        self.api.set(api_index::load_or_empty(&self.cache));
+        self.examples.set(example_index::load_or_empty(&self.cache));
         Ok(ok(format!("{log}\n\nreindexed {n} documents")))
     }
-}
-
-pub(crate) fn example_payload(corpus: &Corpus, name: &str) -> Result<String, String> {
-    let stem = example_stem(name);
-    if stem.is_empty() {
-        return Err("Empty example name".into());
-    }
-    let q = stem.to_lowercase();
-    let matches: Vec<_> = corpus
-        .examples()
-        .into_iter()
-        .filter(|d| d.id.to_lowercase().contains(&q) || d.title.to_lowercase().contains(&q))
-        .collect();
-    if matches.is_empty() {
-        return Err(format!("No example matching {name:?}"));
-    }
-    let exact: Vec<_> = matches
-        .iter()
-        .copied()
-        .filter(|d| {
-            d.path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case(&format!("{stem}.rs")))
-        })
-        .collect();
-    if exact.len() == 1 {
-        return Ok(format_example(exact[0]));
-    }
-    if exact.len() > 1 {
-        let list: Vec<_> = exact.iter().map(|d| d.id.as_str()).collect();
-        return Err(format!(
-            "Multiple examples:\n{}\nCall get with one id.",
-            list.join("\n")
-        ));
-    }
-    if matches.len() > 1 {
-        let list: Vec<_> = matches.iter().map(|d| d.id.as_str()).collect();
-        return Err(format!(
-            "Multiple examples:\n{}\nCall get with one id.",
-            list.join("\n")
-        ));
-    }
-    Ok(format_example(matches[0]))
-}
-
-fn example_stem(name: &str) -> String {
-    let n = name.trim();
-    let lower = n.to_lowercase();
-    if lower.ends_with(".rs") {
-        n[..n.len() - 3].to_string()
-    } else {
-        n.to_string()
-    }
-}
-
-fn format_example(d: &crate::index::Doc) -> String {
-    format!(
-        "# {}\n# {}\n\n{}",
-        d.id,
-        d.path.display(),
-        clip(&d.body, 24_000)
-    )
 }
 
 #[tool_handler]
@@ -631,60 +595,12 @@ impl ServerHandler for GpuiServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::Doc;
-    use std::path::PathBuf;
-
-    fn doc(id: &str, title: &str, body: &str) -> Doc {
-        Doc::new(
-            id,
-            "zed-gpui",
-            "example",
-            title,
-            PathBuf::from(id),
-            body,
-        )
-    }
-
-    fn corpus(docs: Vec<Doc>) -> Corpus {
-        Corpus {
-            docs,
-            missing: Vec::new(),
-        }
-    }
 
     #[test]
-    fn clip_does_not_panic_on_multibyte() {
-        let s = "é".repeat(200);
-        let out = clip(&s, 10);
-        assert!(out.contains('…'));
-        assert!(out.is_char_boundary(out.find('…').unwrap()));
-    }
-
-    #[test]
-    fn clip_short_unchanged() {
-        assert_eq!(clip("hi", 10), "hi");
-    }
-
-    #[test]
-    fn example_stem_strips_rs() {
-        let c = corpus(vec![doc(
-            "zed-gpui/crates/gpui/examples/hello_world.rs",
-            "hello world",
-            "fn main() {}",
-        )]);
-        let msg = example_payload(&c, "hello_world.rs").unwrap();
-        assert!(msg.contains("hello_world.rs"));
-        let msg = example_payload(&c, "hello_world").unwrap();
-        assert!(msg.contains("hello_world.rs"));
-    }
-
-    #[test]
-    fn example_ambiguous_without_exact_filename() {
-        let c = corpus(vec![
-            doc("a/examples/foo_hello.rs", "foo hello", "a"),
-            doc("b/examples/bar_hello.rs", "bar hello", "b"),
-        ]);
-        let err = example_payload(&c, "hello").unwrap_err();
-        assert!(err.starts_with("Multiple examples:"));
+    fn swap_arc_clone_shares_store() {
+        let a = SwapArc::new(1u32);
+        let b = a.clone();
+        a.set(2);
+        assert_eq!(*b.get(), 2);
     }
 }

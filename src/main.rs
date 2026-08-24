@@ -3,6 +3,7 @@ mod curated;
 mod error_decoder;
 mod example_index;
 mod index;
+mod persist;
 mod server;
 mod sources;
 mod sync;
