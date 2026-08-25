@@ -60,10 +60,10 @@ cargo install --git https://github.com/codeChap/mcp-server-gpui-docs
 
 ## MCP config (Grok / Claude / similar)
 
-Point the client at the built binary (stdio). Server id can stay `gpui`:
+Point the client at the built binary (stdio). Server id should be `gpui-docs` so it is distinct from GPUI the framework:
 
 ```toml
-[mcp_servers.gpui]
+[mcp_servers.gpui-docs]
 command = "/path/to/mcp-server-gpui-docs"
 enabled = true
 startup_timeout_sec = 60

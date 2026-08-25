@@ -40,17 +40,17 @@ async fn main() -> Result<()> {
     // Call the `sync` tool to clone/pull (or set GPUI_MCP_SYNC_ON_START=1).
     if std::env::var("GPUI_MCP_SYNC_ON_START").ok().as_deref() == Some("1") {
         if let Err(e) = ensure_sources(&cache) {
-            eprintln!("gpui mcp sync on start failed: {e:#}");
+            eprintln!("gpui-docs mcp sync on start failed: {e:#}");
         }
     }
     if !api_index::index_path(&cache).exists() && sync::gpui_crate(&cache).join("src").is_dir() {
         if let Err(e) = sync::rebuild_oracle(&cache) {
-            eprintln!("gpui mcp oracle rebuild: {e:#}");
+            eprintln!("gpui-docs mcp oracle rebuild: {e:#}");
         }
     }
     let corpus = Corpus::load(&cache);
     eprintln!(
-        "gpui mcp: {} docs from {}",
+        "gpui-docs mcp: {} docs from {}",
         corpus.docs.len(),
         cache.display()
     );

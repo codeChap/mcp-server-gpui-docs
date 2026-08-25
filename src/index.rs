@@ -80,7 +80,7 @@ impl Corpus {
             if !root.exists() {
                 missing.push(remote.id.to_string());
                 eprintln!(
-                    "gpui mcp: source {} not cloned yet ({})",
+                    "gpui-docs mcp: source {} not cloned yet ({})",
                     remote.id,
                     root.display()
                 );

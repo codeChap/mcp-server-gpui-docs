@@ -32,7 +32,7 @@ pub fn build_api_index(gpui_src_root: &Path, zed_commit: &str) -> Result<ApiInde
             match syn::parse_file(&text) {
                 Ok(file) => index_file(&file, &rel, &mut symbols, &mut trait_impls),
                 Err(e) => {
-                    eprintln!("gpui mcp: skip {rel}: {e}");
+                    eprintln!("gpui-docs mcp: skip {rel}: {e}");
                     skipped_files.push(rel);
                 }
             }

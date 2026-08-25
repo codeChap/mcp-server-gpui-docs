@@ -303,7 +303,7 @@ fn merge_macro_supplement(symbols: &mut Vec<ApiSymbol>) {
     let extra: Vec<ApiSymbol> = match serde_json::from_str(MACRO_JSON) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("gpui mcp: macro_generated.json: {e}");
+            eprintln!("gpui-docs mcp: macro_generated.json: {e}");
             return;
         }
     };
