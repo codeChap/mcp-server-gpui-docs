@@ -203,9 +203,30 @@ fn is_example_rs(source: &str, rel: &str) -> bool {
     }
 }
 
+fn source_boost(source: &str) -> u32 {
+    match source {
+        "gotchas" => 50,
+        "zed-gpui" => 35,
+        "book" => 18,
+        "tutorial" => 10,
+        "awesome" => 6,
+        // Longbridge has hundreds of files; body-count must not bury Zed examples.
+        "gpui-component" => 0,
+        _ => 0,
+    }
+}
+
 fn score_doc<'a>(d: &'a Doc, tokens: &[String]) -> Option<(u32, &'a Doc)> {
     let title = d.title.to_lowercase();
     let id = d.id.to_lowercase();
+    let stem = d
+        .path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .replace('_', " ")
+        .replace('-', " ");
     let mut score = 0u32;
     for t in tokens {
         if title.contains(t) {
@@ -214,9 +235,21 @@ fn score_doc<'a>(d: &'a Doc, tokens: &[String]) -> Option<(u32, &'a Doc)> {
         if id.contains(t) {
             score += 4;
         }
-        score += d.body_lc.matches(t.as_str()).count().min(12) as u32;
+        if stem.contains(t) {
+            score += 10;
+        }
+        // Cap per-token body hits so a 2k-line gpui-component page cannot
+        // outrank a 40-line Zed example or the gotchas note.
+        score += d.body_lc.matches(t.as_str()).count().min(4) as u32;
     }
-    (score > 0).then_some((score, d))
+    if score == 0 {
+        return None;
+    }
+    score += source_boost(&d.source);
+    if d.kind == "example" {
+        score += 20;
+    }
+    Some((score, d))
 }
 
 fn push_file(
@@ -331,6 +364,46 @@ mod tests {
     #[test]
     fn gotchas_are_embedded() {
         assert!(GOTCHAS_BODY.contains("gpui_platform"));
+    }
+
+    #[test]
+    fn search_prefers_zed_and_gotchas_over_component_body() {
+        let component_body = "element ".repeat(80);
+        let c = corpus(vec![
+            doc(
+                "gpui-component/skills/gpui/references/element.md",
+                "gpui-component",
+                "doc",
+                "element",
+                &component_body,
+            ),
+            doc(
+                "zed-gpui/crates/gpui/examples/painting.rs",
+                "zed-gpui",
+                "example",
+                "painting",
+                "PathBuilder paint_quad paint_path Element",
+            ),
+            doc(
+                "gotchas",
+                "gotchas",
+                "doc",
+                "GPUI gotchas (current APIs)",
+                "Implement Element: request_layout prepaint paint. Node graph, not nested divs.",
+            ),
+        ]);
+        let hits = c.search("Element request_layout paint", None, 8);
+        assert_eq!(hits.len(), 3);
+        let top: Vec<&str> = hits
+            .iter()
+            .take(2)
+            .map(|(_, d)| d.source.as_str())
+            .collect();
+        assert!(top.contains(&"gotchas"), "{top:?}");
+        assert!(top.contains(&"zed-gpui"), "{top:?}");
+        assert_eq!(hits[2].1.source, "gpui-component");
+        assert!(hits[0].0 > hits[2].0);
+        assert!(hits[1].0 > hits[2].0);
     }
 
     #[test]

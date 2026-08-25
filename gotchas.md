@@ -24,10 +24,12 @@ Older tutorials use `Application::new().run(...)`. That may still compile on som
 
 ## Cargo.toml (Zed-git, recommended)
 
+Pin the rev. This server's oracle defaults to the same SHA (`d9ad6aff67e47de43abb270d22de75dd950f1b48`). Override with `GPUI_MCP_ZED_REV`.
+
 ```toml
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "wayland", "x11"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "d9ad6aff67e47de43abb270d22de75dd950f1b48" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d9ad6aff67e47de43abb270d22de75dd950f1b48", features = ["font-kit", "wayland", "x11"] }
 ```
 
 Linux: need `gpui_platform` features for Wayland/X11 + fonts.
@@ -60,7 +62,15 @@ Define with `actions!`, bind with `cx.bind_keys([KeyBinding::new("ctrl-s", Save,
 
 ## Custom drawing (graph canvas)
 
-Implement `Element`: `request_layout` → `prepaint` → `paint`. Paint quads/paths on `Window`. This is how a node graph should work — not nested `div`s for every wire.
+Do **not** nest a `div` per node or wire. Implement `Element`:
+
+`request_layout` → `prepaint` (`insert_hitbox`) → `paint` (`paint_quad` / `PathBuilder` / `paint_path`).
+
+Register mouse handlers **in `paint`** with `window.on_mouse_event` (paint-phase only). Recipe: `custom_element_canvas`.
+
+Zed `painting.rs` uses the `canvas()` closure helper — fine for doodles, **wrong** for a node graph (pin hit-testing, pan/zoom, wires). The book page `implementing-element` is a stub; use the recipe plus `zed-gpui` examples `painting.rs` / `paths_bench.rs` for path APIs.
+
+Engine I/O does not belong in paint. Drain work on a 16ms `cx.spawn` + `background_executor().timer` (recipe `poll_timer`).
 
 ## Do not
 

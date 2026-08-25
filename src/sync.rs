@@ -4,9 +4,9 @@ use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-use crate::sources::{repo_dir, REMOTES};
+use crate::sources::{REMOTES, remote_checkout_rev, repo_dir};
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 const LOCK_TIMEOUT: Duration = Duration::from_secs(180);
@@ -42,7 +42,7 @@ pub fn ensure_sources(cache: &Path) -> Result<String> {
     std::fs::create_dir_all(cache.join("src"))?;
     let mut log = Vec::new();
     for remote in REMOTES {
-        match sync_one(cache, remote.id, remote.git, remote.sparse) {
+        match sync_one(cache, remote) {
             Ok(msg) => log.push(format!("[{}] {msg}", remote.id)),
             Err(e) => log.push(format!("[{}] ERROR: {e:#}", remote.id)),
         }
@@ -93,15 +93,49 @@ pub fn rebuild_oracle(cache: &Path) -> Result<String> {
     ))
 }
 
-fn sync_one(cache: &Path, id: &str, url: &str, sparse: &[&str]) -> Result<String> {
-    let dir = repo_dir(cache, id)?;
+pub fn same_git_rev(a: &str, b: &str) -> bool {
+    let n = a.len().min(b.len());
+    n >= 7 && a[..n].eq_ignore_ascii_case(&b[..n])
+}
+
+fn sync_one(cache: &Path, remote: &crate::sources::Remote) -> Result<String> {
+    let dir = repo_dir(cache, remote.id)?;
+    let pin = remote_checkout_rev(remote);
     if dir.join(".git").exists() {
+        if let Some(rev) = pin.as_deref() {
+            return checkout_pinned(&dir, rev);
+        }
         return pull(&dir);
     }
-    if sparse.is_empty() {
-        clone_full(url, &dir)
-    } else {
-        clone_sparse(url, &dir, sparse)
+    if remote.sparse.is_empty() {
+        clone_full(remote.git, &dir)?;
+        if let Some(rev) = pin.as_deref() {
+            return checkout_pinned(&dir, rev).map(|m| format!("cloned; {m}"));
+        }
+        return Ok("cloned".into());
+    }
+    clone_sparse(remote.git, &dir, remote.sparse, pin.as_deref())
+}
+
+fn checkout_pinned(dir: &Path, rev: &str) -> Result<String> {
+    if let Ok(current) = git_rev(dir) {
+        if same_git_rev(&current, rev) {
+            return Ok(format!("already at {current}"));
+        }
+    }
+    fetch_rev(dir, rev)?;
+    git_run(Some(dir), ["checkout", "--detach", "FETCH_HEAD"])?;
+    let got = git_rev(dir).unwrap_or_default();
+    Ok(format!("checked out {got}"))
+}
+
+fn fetch_rev(dir: &Path, rev: &str) -> Result<()> {
+    match git_run(Some(dir), ["fetch", "--depth", "1", "origin", rev]) {
+        Ok(_) => Ok(()),
+        Err(shallow) => match git_run(Some(dir), ["fetch", "origin", rev]) {
+            Ok(_) => Ok(()),
+            Err(full) => bail!("git fetch {rev} failed: {shallow:#}; fallback: {full:#}"),
+        },
     }
 }
 
@@ -122,7 +156,7 @@ fn clone_full(url: &str, dir: &Path) -> Result<String> {
     Ok("cloned".into())
 }
 
-fn clone_sparse(url: &str, dir: &Path, sparse: &[&str]) -> Result<String> {
+fn clone_sparse(url: &str, dir: &Path, sparse: &[&str], rev: Option<&str>) -> Result<String> {
     std::fs::create_dir_all(dir)?;
     git_run(Some(dir), ["init"])?;
     git_run(Some(dir), ["remote", "add", "origin", url])?;
@@ -131,9 +165,15 @@ fn clone_sparse(url: &str, dir: &Path, sparse: &[&str]) -> Result<String> {
         dir.join(".git/info/sparse-checkout"),
         sparse.join("\n") + "\n",
     )?;
-    fetch_default_branch(dir, url)?;
-    git_run(Some(dir), ["checkout", "FETCH_HEAD"])?;
-    Ok("sparse-cloned".into())
+    if let Some(rev) = rev {
+        fetch_rev(dir, rev)?;
+        git_run(Some(dir), ["checkout", "--detach", "FETCH_HEAD"])?;
+        Ok(format!("sparse-cloned at {rev}"))
+    } else {
+        fetch_default_branch(dir, url)?;
+        git_run(Some(dir), ["checkout", "FETCH_HEAD"])?;
+        Ok("sparse-cloned".into())
+    }
 }
 
 fn fetch_default_branch(dir: &Path, url: &str) -> Result<()> {
@@ -156,7 +196,10 @@ fn git_cmd() -> Command {
     c
 }
 
-fn git_run(dir: Option<&Path>, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Result<Output> {
+fn git_run(
+    dir: Option<&Path>,
+    args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+) -> Result<Output> {
     let mut cmd = git_cmd();
     if let Some(d) = dir {
         cmd.current_dir(d);
@@ -182,4 +225,20 @@ fn run_cmd(mut cmd: Command, label: &str) -> Result<Output> {
         );
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_git_rev_accepts_prefix() {
+        let full = "d9ad6aff67e47de43abb270d22de75dd950f1b48";
+        assert!(same_git_rev(full, full));
+        assert!(same_git_rev(full, "d9ad6af"));
+        assert!(same_git_rev("d9ad6af", full));
+        assert!(!same_git_rev(full, "6e2fae619c45"));
+        assert!(!same_git_rev("abc", "abcdef1"));
+        assert!(!same_git_rev("", full));
+    }
 }

@@ -43,9 +43,22 @@
     "id": "spawn_lifetime",
     "regexes": ["does not live long enough", "cx\\.spawn"],
     "explanation": "cx.spawn closures cannot keep &mut Context. Capture Entity (cheap handle) or WeakEntity.",
-    "fix": "let entity = cx.entity(); cx.spawn(async move |cx| { entity.update(&mut cx, |this, cx| { ... }) }).",
-    "symbols": ["Entity"],
-    "recipe": null
+    "fix": "let entity = cx.entity(); cx.spawn(async move |this, cx| { this.update(cx, |this, cx| { ... }) }). Store the Task on the view. See recipe poll_timer.",
+    "symbols": ["Entity", "Task", "AsyncApp"],
+    "recipe": "poll_timer"
+  },
+  {
+    "id": "element_trait_incomplete",
+    "regexes": [
+      "the trait `Element` is not implemented",
+      "missing [`']request_layout[`']",
+      "missing [`']prepaint[`']",
+      "method `paint`.*Element"
+    ],
+    "explanation": "A custom canvas implements Element (request_layout, prepaint, paint, id, source_location) plus IntoElement. Nested divs per wire will not pan at refresh.",
+    "fix": "Copy recipe custom_element_canvas. Paint quads/paths on Window; register on_mouse_event during paint.",
+    "symbols": ["Element", "PathBuilder", "Hitbox"],
+    "recipe": "custom_element_canvas"
   },
   {
     "id": "missing_styled",

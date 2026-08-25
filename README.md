@@ -25,9 +25,9 @@ Corpus (markdown + example files):
 
 Oracle (from Zed `crates/gpui` source via `syn` — **prefer these**):
 
-- `gpui_scaffold` — Cargo.toml + `gpui_platform::application()` main
-- `gpui_recipe` — curated boot / entity / `uniform_list`
-- `gpui_symbol` / `gpui_search` / `gpui_type_methods` — signatures from source
+- `gpui_scaffold` — Cargo.toml + `gpui_platform::application()` main (git deps pinned)
+- `gpui_recipe` — curated boot / entity / `uniform_list` / **custom Element canvas** / 16ms poll
+- `gpui_symbol` / `gpui_search` / `gpui_type_methods` — signatures from source (`type_methods` lists trait methods when the name is a trait; pass `filter` for `Window.paint_*`)
 - `gpui_styled_methods` — `flex` / `bg` / padding (macro-generated)
 - `gpui_examples` / `gpui_list_examples` / `gpui_example_file` — examples that *use* a symbol
 - `gpui_decode_error` — paste rustc output
@@ -37,6 +37,10 @@ Oracle (from Zed `crates/gpui` source via `syn` — **prefer these**):
 Cache: `~/.cache/mcp-server-gpui-docs` (override `GPUI_MCP_CACHE` or `XDG_CACHE_HOME`). `HOME` or `GPUI_MCP_CACHE` is required — the server will not use `/tmp`.  
 Gotchas are compiled into the binary (`include_str!`), so `cargo install` still serves them.  
 Set `GPUI_MCP_SYNC_ON_START=1` to clone on launch (slow first time; zed is sparse). `sync` writes to the cache (git clone/pull).
+
+**Zed pin:** `sync` checks out `crates/gpui` at `d9ad6aff67e47de43abb270d22de75dd950f1b48` (RustRivetGPUI's `gpui` rev) so symbol signatures match the app, not Zed `main`. Override with `GPUI_MCP_ZED_REV=<sha>` or `GPUI_MCP_ZED_REV=HEAD` to follow the default branch.
+
+**Search:** unscoped `search` ranks `gotchas` and `zed-gpui` above `gpui-component`. Pass `source` to restrict. The GPUI book page `implementing-element` is a stub — use `gpui_recipe(query="custom element canvas")`.
 
 ## Build
 

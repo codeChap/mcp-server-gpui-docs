@@ -158,61 +158,114 @@ fn lookup_tier(s: &ApiSymbol, q: &str) -> Option<u8> {
     }
 }
 
-pub fn methods_for_type(index: &ApiIndex, type_name: &str, trait_filter: Option<&str>) -> String {
+pub fn methods_for_type(
+    index: &ApiIndex,
+    type_name: &str,
+    trait_filter: Option<&str>,
+    name_filter: Option<&str>,
+) -> String {
+    let name_f = name_filter
+        .map(|s| s.to_lowercase())
+        .filter(|s| !s.is_empty());
+    let matches_name = |s: &ApiSymbol| {
+        name_f.as_ref().is_none_or(|f| {
+            s.name.to_lowercase().contains(f) || s.signature.to_lowercase().contains(f)
+        })
+    };
+
     let inherent: Vec<_> = index
         .symbols
         .iter()
-        .filter(|s| s.kind == SymbolKind::Method && s.owner.as_deref() == Some(type_name))
+        .filter(|s| {
+            s.kind == SymbolKind::Method && s.owner.as_deref() == Some(type_name) && matches_name(s)
+        })
         .collect();
+    let named_as_trait = is_trait(index, type_name);
+    let own_trait_methods: Vec<_> = if named_as_trait {
+        trait_methods(index, type_name)
+            .into_iter()
+            .filter(|s| matches_name(s))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let trait_names = traits_implemented(index, type_name);
-    if inherent.is_empty() && trait_names.is_empty() && !type_known(index, type_name) {
+    if inherent.is_empty()
+        && trait_names.is_empty()
+        && own_trait_methods.is_empty()
+        && !type_known(index, type_name)
+    {
         return format!(
             "No type '{type_name}' in the GPUI index. Try gpui_symbol / gpui_search first."
         );
     }
     let filter_l = trait_filter.map(|t| t.to_lowercase());
+    let show_own_trait = !own_trait_methods.is_empty()
+        && filter_l
+            .as_ref()
+            .is_none_or(|f| type_name.to_lowercase() == *f);
     let trait_sections: Vec<_> = trait_names
         .into_iter()
         .filter(|tn| filter_l.as_ref().is_none_or(|f| tn.to_lowercase() == *f))
         .map(|tn| {
-            let methods = trait_methods(index, &tn);
+            let methods: Vec<_> = trait_methods(index, &tn)
+                .into_iter()
+                .filter(|s| matches_name(s))
+                .collect();
             (tn, methods)
         })
         .collect();
-    let many = inherent.len() + trait_sections.iter().map(|(_, m)| m.len()).sum::<usize>();
-    let collapse = many > 200 && filter_l.is_none();
+    let many = inherent.len()
+        + own_trait_methods.len()
+        + trait_sections.iter().map(|(_, m)| m.len()).sum::<usize>();
+    let collapse = many > 80 && filter_l.is_none() && name_f.is_none();
 
     let mut out = String::new();
-    if filter_l.is_none() {
+    if show_own_trait {
+        out.push_str(&format!("## Trait {type_name}\n"));
+        write_method_block(&mut out, &own_trait_methods, collapse);
+    }
+    if filter_l.is_none() && (!inherent.is_empty() || !named_as_trait) {
         out.push_str("## Inherent\n");
         if inherent.is_empty() {
             out.push_str("(none)\n");
         } else {
-            for s in &inherent {
-                push_method_line(&mut out, s);
-            }
+            write_method_block(&mut out, &inherent, collapse);
         }
     }
     for (tn, methods) in trait_sections {
         out.push_str(&format!("\n## via {tn}\n"));
-        if collapse {
-            let names: Vec<_> = methods.iter().map(|m| m.name.as_str()).collect();
-            out.push_str(&names.join(", "));
-            out.push('\n');
-        } else {
-            for s in methods {
-                push_method_line(&mut out, s);
-            }
-        }
+        write_method_block(&mut out, &methods, collapse);
     }
     if collapse {
-        out.push_str("\nPass trait_filter to see full signatures for one trait.\n");
+        out.push_str(
+            "\nPass trait_filter or filter (name substring, e.g. paint) for full signatures.\n",
+        );
     }
     if out.is_empty() {
         format!("No methods for '{type_name}' with that trait filter.")
     } else {
         out
     }
+}
+
+fn write_method_block(out: &mut String, methods: &[&ApiSymbol], collapse: bool) {
+    if collapse {
+        let names: Vec<_> = methods.iter().map(|m| m.name.as_str()).collect();
+        out.push_str(&names.join(", "));
+        out.push('\n');
+    } else {
+        for s in methods {
+            push_method_line(out, s);
+        }
+    }
+}
+
+fn is_trait(index: &ApiIndex, name: &str) -> bool {
+    index
+        .symbols
+        .iter()
+        .any(|s| s.kind == SymbolKind::Trait && s.name == name)
 }
 
 fn traits_implemented(index: &ApiIndex, type_name: &str) -> Vec<String> {
@@ -340,7 +393,7 @@ mod tests {
 
     #[test]
     fn methods_unknown_type() {
-        let out = methods_for_type(&ApiIndex::empty(), "Nope", None);
+        let out = methods_for_type(&ApiIndex::empty(), "Nope", None, None);
         assert!(out.contains("No type 'Nope'"));
     }
 
@@ -367,13 +420,47 @@ mod tests {
             trait_name: "Render".into(),
             type_name: "Entity".into(),
         });
-        let out = methods_for_type(&idx, "Entity", None);
+        let out = methods_for_type(&idx, "Entity", None, None);
         assert!(out.contains("## Inherent"));
         assert!(out.contains("- `fn notify` — ping"));
         assert!(out.contains("## via Render"));
         assert!(out.contains("- `fn render` — draw"));
-        let filtered = methods_for_type(&idx, "Entity", Some("missing"));
+        let filtered = methods_for_type(&idx, "Entity", Some("missing"), None);
         assert_eq!(filtered, "No methods for 'Entity' with that trait filter.");
+    }
+
+    #[test]
+    fn methods_for_trait_lists_trait_methods() {
+        let mut idx = ApiIndex::empty();
+        idx.symbols = vec![
+            sym(SymbolKind::Trait, "Element", None, "pub trait Element", ""),
+            sym(
+                SymbolKind::TraitMethod,
+                "request_layout",
+                Some("Element"),
+                "fn request_layout",
+                "layout",
+            ),
+            sym(
+                SymbolKind::TraitMethod,
+                "paint",
+                Some("Element"),
+                "fn paint",
+                "draw",
+            ),
+        ];
+        let out = methods_for_type(&idx, "Element", None, None);
+        assert!(out.contains("## Trait Element"));
+        assert!(out.contains("- `fn request_layout` — layout"));
+        assert!(out.contains("- `fn paint` — draw"));
+        assert!(!out.contains("## Inherent"));
+        let filtered = methods_for_type(&idx, "Element", Some("Element"), None);
+        assert!(filtered.contains("fn paint"));
+        let missing = methods_for_type(&idx, "Element", Some("Styled"), None);
+        assert_eq!(missing, "No methods for 'Element' with that trait filter.");
+        let named = methods_for_type(&idx, "Element", None, Some("paint"));
+        assert!(named.contains("fn paint"));
+        assert!(!named.contains("request_layout"));
     }
 
     #[test]
@@ -392,14 +479,17 @@ mod tests {
                 "",
             ));
         }
-        let out = methods_for_type(&idx, "Div", None);
+        let out = methods_for_type(&idx, "Div", None, None);
         assert!(out.contains("## Inherent\n(none)"));
         assert!(out.contains("via Styled"));
         assert!(out.contains("m0, m1"));
         assert!(out.contains("Pass trait_filter"));
-        let filtered = methods_for_type(&idx, "Div", Some("Styled"));
+        let filtered = methods_for_type(&idx, "Div", Some("Styled"), None);
         assert!(filtered.contains("- `fn m0`"));
         assert!(!filtered.contains("Pass trait_filter"));
         assert!(!filtered.contains("## Inherent"));
+        let named = methods_for_type(&idx, "Div", None, Some("m0"));
+        assert!(named.contains("- `fn m0`"));
+        assert!(!named.contains("m1,"));
     }
 }

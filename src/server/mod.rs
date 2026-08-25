@@ -13,8 +13,8 @@ use crate::curated::{Curated, DepMode};
 use crate::error_decoder;
 use crate::example_index::{self, ExampleIndex};
 use crate::index::Corpus;
-use crate::sources::REMOTES;
-use crate::sync::ensure_sources;
+use crate::sources::{REMOTES, zed_pin_rev};
+use crate::sync::{ensure_sources, same_git_rev};
 
 mod examples;
 use examples::{BODY_LIMIT, clip, example_payload};
@@ -100,6 +100,10 @@ pub struct ErrorParams {
 pub struct TypeMethodsParams {
     pub type_name: String,
     pub trait_filter: Option<String>,
+    #[schemars(
+        description = "Optional method-name substring, e.g. paint, on_mouse. Use for Window."
+    )]
+    pub filter: Option<String>,
 }
 
 #[derive(Clone)]
@@ -430,7 +434,7 @@ impl GpuiServer {
     }
 
     #[tool(
-        description = "Curated GPUI recipes (boot, entity state, uniform_list). Prefer these over stale tutorials."
+        description = "Curated GPUI recipes (boot, entity, uniform_list, custom Element canvas, 16ms poll). Prefer these over stale tutorials."
     )]
     async fn gpui_recipe(
         &self,
@@ -453,9 +457,8 @@ impl GpuiServer {
             return Ok(ok(format!("# {} — {}\n\n{}", r.id, r.title, r.code)));
         }
         if hits.is_empty() {
-            return Ok(err(
-                "No recipes matched. Try window_open, entity_state, uniform_list_usage.",
-            ));
+            let ids: Vec<_> = self.curated.all().iter().map(|r| r.id.as_str()).collect();
+            return Ok(err(format!("No recipes matched. Try {}.", ids.join(", "))));
         }
         let list: Vec<_> = hits
             .iter()
@@ -518,9 +521,24 @@ impl GpuiServer {
         let api = self.api.get();
         let ex = self.examples.get();
         let corpus = self.corpus.get();
+        let pin = zed_pin_rev();
+        let pin_line = match pin.as_deref() {
+            None => "pinned zed rev: HEAD (unpinned; GPUI_MCP_ZED_REV=HEAD)".to_string(),
+            Some(p) => {
+                let match_s = if api.zed_commit.is_empty() {
+                    "oracle empty — call sync"
+                } else if same_git_rev(&api.zed_commit, p) {
+                    "pin match: yes"
+                } else {
+                    "pin match: NO — call sync"
+                };
+                format!("pinned zed rev: {p}\n{match_s}")
+            }
+        };
         Ok(ok(format!(
-            "cache: {}\nzed commit: {}\ngpui crate version: {}\napi symbols: {}\nexamples indexed: {}\nmarkdown docs: {}\nmissing clones: {}\nschema: {}\nbuilt_at: {}\nCall sync if symbols are 0.",
+            "cache: {}\n{}\nzed commit: {}\ngpui crate version: {}\napi symbols: {}\nexamples indexed: {}\nmarkdown docs: {}\nmissing clones: {}\nschema: {}\nbuilt_at: {}\nCall sync if symbols are 0 or pin match is NO.",
             self.cache.display(),
+            pin_line,
             if api.zed_commit.is_empty() {
                 "(none)"
             } else {
@@ -550,6 +568,7 @@ impl GpuiServer {
             &api,
             &p.type_name,
             p.trait_filter.as_deref(),
+            p.filter.as_deref(),
         )))
     }
 
@@ -583,11 +602,15 @@ impl ServerHandler for GpuiServer {
                  1) New to a task? Call gpui_scaffold once, then gpui_recipe(query=...) for the pattern. \
                  2) Unknown symbol/signature? gpui_symbol(name). Not found? gpui_search(query). \
                  3) Styling (flex/px/bg/etc.)? gpui_styled_methods(filter). \
-                 4) Need working usage? gpui_examples(symbols=[...]) — prefer this over guessing. \
+                 4) Need working usage? gpui_examples(symbols=[...]) — prefer zed-gpui over gpui-component. \
                  5) Compile error mentioning gpui types? Paste it into gpui_decode_error before retrying. \
+                 Graph canvas / custom paint: gpui_recipe(query=\"custom element canvas\") — implement Element, \
+                 not a div per wire. 16ms poll: gpui_recipe(query=\"timer\"). \
+                 Unscoped search ranks gotchas + zed-gpui above gpui-component. \
                  Key facts: views impl Render; state lives in Entity<T> via cx.new/update; \
                  async via cx.spawn; styling is Tailwind-like chained methods on div(). \
-                 Current boot is gpui_platform::application(). Never use Application::new().",
+                 Current boot is gpui_platform::application(). Never use Application::new(). \
+                 Oracle is pinned to a Zed rev (see gpui_status); GPUI_MCP_ZED_REV overrides.",
             )
     }
 }

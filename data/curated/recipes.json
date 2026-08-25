@@ -16,5 +16,45 @@
     "title": "uniform_list virtualized equal-height rows",
     "tags": ["list", "virtual", "scroll"],
     "symbols": ["uniform_list", "div", "px"]
+  },
+  {
+    "id": "custom_element_canvas",
+    "title": "Custom Element: quads, PathBuilder wires, hitbox, on_mouse_event",
+    "tags": [
+      "canvas",
+      "custom",
+      "element",
+      "paint",
+      "path",
+      "hitbox",
+      "mouse",
+      "graph",
+      "wire",
+      "quad"
+    ],
+    "symbols": [
+      "Element",
+      "PathBuilder",
+      "paint_quad",
+      "paint_path",
+      "insert_hitbox",
+      "on_mouse_event",
+      "Hitbox",
+      "request_layout",
+      "prepaint"
+    ]
+  },
+  {
+    "id": "poll_timer",
+    "title": "16ms cx.spawn + background_executor timer drain",
+    "tags": ["timer", "poll", "tick", "spawn", "async", "foreground"],
+    "symbols": [
+      "cx.spawn",
+      "AsyncApp",
+      "Task",
+      "timer",
+      "background_executor",
+      "ForegroundExecutor"
+    ]
   }
 ]

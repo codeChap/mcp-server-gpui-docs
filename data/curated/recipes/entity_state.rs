@@ -1,4 +1,4 @@
-// gpui rev: zed git HEAD  verified: 2026-03-23
+// gpui rev: d9ad6aff67e47de43abb270d22de75dd950f1b48
 // State lives in the view struct. Mutate then cx.notify().
 
 use gpui::{
