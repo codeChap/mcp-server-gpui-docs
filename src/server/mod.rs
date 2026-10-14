@@ -434,7 +434,7 @@ impl GpuiServer {
     }
 
     #[tool(
-        description = "Curated GPUI recipes (boot, entity, uniform_list, custom Element canvas, 16ms poll). Prefer these over stale tutorials."
+        description = "Curated GPUI recipes (boot, entity, lists, custom Element canvas, 16ms poll, actions+focus, observe/subscribe, spawn WeakEntity, deferred+anchored overlay). Prefer these over stale tutorials."
     )]
     async fn gpui_recipe(
         &self,
@@ -606,6 +606,8 @@ impl ServerHandler for GpuiServer {
                  5) Compile error mentioning gpui types? Paste it into gpui_decode_error before retrying. \
                  Graph canvas / custom paint: gpui_recipe(query=\"custom element canvas\") — implement Element, \
                  not a div per wire. 16ms poll: gpui_recipe(query=\"timer\"). \
+                 Keys: gpui_recipe(query=\"actions focus\"). Overlays: gpui_recipe(query=\"deferred anchored\"). \
+                 Variable-height list: gpui_recipe(query=\"ListState\"). \
                  Unscoped search ranks gotchas + zed-gpui above gpui-component. \
                  Key facts: views impl Render; state lives in Entity<T> via cx.new/update; \
                  async via cx.spawn; styling is Tailwind-like chained methods on div(). \

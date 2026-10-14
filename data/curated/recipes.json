@@ -56,5 +56,63 @@
       "background_executor",
       "ForegroundExecutor"
     ]
+  },
+  {
+    "id": "actions_focus",
+    "title": "actions! + Focusable + key_context + on_action + bind_keys",
+    "tags": ["actions", "focus", "keyboard", "keybinding", "keymap"],
+    "symbols": [
+      "actions",
+      "Focusable",
+      "FocusHandle",
+      "key_context",
+      "on_action",
+      "track_focus",
+      "KeyBinding",
+      "bind_keys"
+    ]
+  },
+  {
+    "id": "subscriptions",
+    "title": "observe + subscribe + EventEmitter; store Subscriptions on the view",
+    "tags": ["observe", "subscribe", "event", "notify", "subscription"],
+    "symbols": [
+      "observe",
+      "subscribe",
+      "EventEmitter",
+      "Subscription",
+      "cx.notify",
+      "cx.emit",
+      "Entity"
+    ]
+  },
+  {
+    "id": "spawn_weak",
+    "title": "cx.spawn WeakEntity + background_spawn; keep the Task",
+    "tags": ["spawn", "async", "weak", "task", "background"],
+    "symbols": [
+      "cx.spawn",
+      "WeakEntity",
+      "AsyncApp",
+      "Task",
+      "background_spawn"
+    ]
+  },
+  {
+    "id": "deferred_anchored",
+    "title": "In-window overlay with deferred + anchored",
+    "tags": ["overlay", "popover", "anchored", "deferred", "float"],
+    "symbols": [
+      "deferred",
+      "anchored",
+      "Anchor",
+      "on_mouse_down_out"
+    ]
+  },
+  {
+    "id": "list_state",
+    "title": "list + ListState variable-height virtualized rows",
+    "tags": ["list", "virtual", "variable", "scroll", "ListState"],
+    "symbols": ["list", "ListState", "ListAlignment", "into_any"]
   }
 ]

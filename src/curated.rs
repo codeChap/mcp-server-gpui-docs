@@ -124,6 +124,11 @@ fn recipe_code(id: &str) -> Option<&'static str> {
             "../data/curated/recipes/custom_element_canvas.rs"
         )),
         "poll_timer" => Some(include_str!("../data/curated/recipes/poll_timer.rs")),
+        "actions_focus" => Some(include_str!("../data/curated/recipes/actions_focus.rs")),
+        "subscriptions" => Some(include_str!("../data/curated/recipes/subscriptions.rs")),
+        "spawn_weak" => Some(include_str!("../data/curated/recipes/spawn_weak.rs")),
+        "deferred_anchored" => Some(include_str!("../data/curated/recipes/deferred_anchored.rs")),
+        "list_state" => Some(include_str!("../data/curated/recipes/list_state.rs")),
         _ => None,
     }
 }
@@ -159,5 +164,19 @@ mod tests {
         assert_eq!(hits[0].id, "custom_element_canvas");
         assert_eq!(c.search("16ms timer poll")[0].id, "poll_timer");
         assert_eq!(c.search("PathBuilder")[0].id, "custom_element_canvas");
+        assert_eq!(
+            c.search("key_context on_action Focusable")[0].id,
+            "actions_focus"
+        );
+        assert_eq!(
+            c.search("observe subscribe EventEmitter")[0].id,
+            "subscriptions"
+        );
+        assert_eq!(c.search("WeakEntity background_spawn")[0].id, "spawn_weak");
+        assert_eq!(
+            c.search("deferred anchored popover")[0].id,
+            "deferred_anchored"
+        );
+        assert_eq!(c.search("ListState variable height")[0].id, "list_state");
     }
 }

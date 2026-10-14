@@ -12,7 +12,7 @@ Indexed sources (after `sync`):
 | `book` | [GPUI Book](https://github.com/MatinAniss/gpui-book) |
 | `tutorial` | [gpui-tutorial](https://github.com/hedge-ops/gpui-tutorial) |
 | `gpui-component` | [Longbridge gpui-component](https://github.com/longbridge/gpui-component) |
-| `zed-gpui` | sparse clone of Zed `crates/gpui` (README + examples) |
+| `zed-gpui` | sparse clone of Zed `crates/gpui`, `gpui_platform`, `gpui_tokio`, plus the GPUI glossary |
 | `awesome` | [awesome-gpui](https://github.com/zed-industries/awesome-gpui) |
 
 ## Tools
@@ -26,7 +26,7 @@ Corpus (markdown + example files):
 Oracle (from Zed `crates/gpui` source via `syn` — **prefer these**):
 
 - `gpui_scaffold` — Cargo.toml + `gpui_platform::application()` main (git deps pinned)
-- `gpui_recipe` — curated boot / entity / `uniform_list` / **custom Element canvas** / 16ms poll
+- `gpui_recipe` — curated boot / entity / lists / **custom Element canvas** / 16ms poll / **actions+focus** / **observe+subscribe** / **spawn WeakEntity** / **deferred+anchored overlay**
 - `gpui_symbol` / `gpui_search` / `gpui_type_methods` — signatures from source (`type_methods` lists trait methods when the name is a trait; pass `filter` for `Window.paint_*`)
 - `gpui_styled_methods` — `flex` / `bg` / padding (macro-generated)
 - `gpui_examples` / `gpui_list_examples` / `gpui_example_file` — examples that *use* a symbol

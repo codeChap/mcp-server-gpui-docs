@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use quote::ToTokens;
@@ -10,33 +10,41 @@ use super::{
     ApiIndex, ApiSymbol, INDEX_SCHEMA_VERSION, SymbolKind, TraitImplRecord, merge_macro_supplement,
 };
 
+#[cfg(test)]
 pub fn build_api_index(gpui_src_root: &Path, zed_commit: &str) -> Result<ApiIndex> {
+    build_api_index_with_extras(gpui_src_root, &[], zed_commit)
+}
+
+/// Index `crates/gpui` plus sibling crates (`gpui_platform`, `gpui_tokio`, …).
+/// Extra crate files are stored as `{crate_dir_name}/{rel}` so they do not
+/// collide with `src/…` paths from gpui itself.
+pub fn build_api_index_with_extras(
+    gpui_src_root: &Path,
+    extra_crates: &[PathBuf],
+    zed_commit: &str,
+) -> Result<ApiIndex> {
     let mut symbols = Vec::new();
     let mut trait_impls = Vec::new();
     let mut skipped_files = Vec::new();
-    let src = gpui_src_root.join("src");
-    if src.is_dir() {
-        for entry in WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                continue;
-            }
-            let rel = crate::index::rel_unix(path, gpui_src_root);
-            let Ok(text) = std::fs::read_to_string(path) else {
-                skipped_files.push(rel);
-                continue;
-            };
-            match syn::parse_file(&text) {
-                Ok(file) => index_file(&file, &rel, &mut symbols, &mut trait_impls),
-                Err(e) => {
-                    eprintln!("gpui-docs mcp: skip {rel}: {e}");
-                    skipped_files.push(rel);
-                }
-            }
-        }
+    index_crate_src(
+        gpui_src_root,
+        "",
+        &mut symbols,
+        &mut trait_impls,
+        &mut skipped_files,
+    );
+    for extra in extra_crates {
+        let prefix = extra
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("extra");
+        index_crate_src(
+            extra,
+            &format!("{prefix}/"),
+            &mut symbols,
+            &mut trait_impls,
+            &mut skipped_files,
+        );
     }
 
     merge_macro_supplement(&mut symbols);
@@ -51,6 +59,40 @@ pub fn build_api_index(gpui_src_root: &Path, zed_commit: &str) -> Result<ApiInde
         trait_impls,
         symbols,
     })
+}
+
+fn index_crate_src(
+    crate_root: &Path,
+    file_prefix: &str,
+    symbols: &mut Vec<ApiSymbol>,
+    trait_impls: &mut Vec<TraitImplRecord>,
+    skipped_files: &mut Vec<String>,
+) {
+    let src = crate_root.join("src");
+    if !src.is_dir() {
+        return;
+    }
+    for entry in WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let rel = format!("{file_prefix}{}", crate::index::rel_unix(path, crate_root));
+        let Ok(text) = std::fs::read_to_string(path) else {
+            skipped_files.push(rel);
+            continue;
+        };
+        match syn::parse_file(&text) {
+            Ok(file) => index_file(&file, &rel, symbols, trait_impls),
+            Err(e) => {
+                eprintln!("gpui-docs mcp: skip {rel}: {e}");
+                skipped_files.push(rel);
+            }
+        }
+    }
 }
 
 // Syn item dispatcher: one arm per public kind. Per-kind helpers would only relocate the same arms.
@@ -396,5 +438,47 @@ mod tests {
         assert!(foo.signature.contains("2 fields"));
         let bar = symbols.iter().find(|s| s.name == "Bar").unwrap();
         assert!(bar.signature.contains("3 variants"));
+    }
+
+    #[test]
+    fn extra_crate_paths_are_prefixed() {
+        let dir =
+            std::env::temp_dir().join(format!("gpui-docs-oracle-extra-{}", std::process::id()));
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "pub fn application() {}\n").unwrap();
+        let gpui =
+            std::env::temp_dir().join(format!("gpui-docs-oracle-gpui-{}", std::process::id()));
+        std::fs::create_dir_all(gpui.join("src")).unwrap();
+        std::fs::write(gpui.join("src/lib.rs"), "pub struct App;\n").unwrap();
+        std::fs::write(
+            gpui.join("Cargo.toml"),
+            "[package]\nname=\"gpui\"\nversion=\"0.1.0\"\n",
+        )
+        .unwrap();
+        let solo = build_api_index(&gpui, "deadbeef").unwrap();
+        assert!(
+            solo.symbols
+                .iter()
+                .any(|s| s.name == "App" && s.file == "src/lib.rs")
+        );
+        let idx = build_api_index_with_extras(&gpui, &[dir.clone()], "deadbeef").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&gpui);
+        assert!(
+            idx.symbols.iter().any(|s| {
+                s.name == "application" && s.file.starts_with("gpui-docs-oracle-extra-")
+            }),
+            "{:?}",
+            idx.symbols
+                .iter()
+                .map(|s| (&s.name, &s.file))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            idx.symbols
+                .iter()
+                .any(|s| s.name == "App" && s.file == "src/lib.rs")
+        );
     }
 }

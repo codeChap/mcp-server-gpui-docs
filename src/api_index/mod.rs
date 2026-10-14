@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod parse;
 
-pub use parse::build_api_index;
+pub use parse::build_api_index_with_extras;
 
 pub const INDEX_SCHEMA_VERSION: u32 = 1;
 const MACRO_JSON: &str = include_str!("../../data/macro_generated.json");

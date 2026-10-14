@@ -32,7 +32,7 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "d9ad6aff67e47de43
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "d9ad6aff67e47de43abb270d22de75dd950f1b48", features = ["font-kit", "wayland", "x11"] }
 ```
 
-Linux: need `gpui_platform` features for Wayland/X11 + fonts.
+Linux: enable at least one of `wayland` / `x11` on **`gpui_platform`** (not the empty feature names on `gpui`). macOS needs `font-kit` or glyphs do not rasterize. Windows needs no extra features. `gpui_platform::headless()` is the test/CI boot.
 
 ## gpui-component
 
@@ -53,12 +53,31 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 
 ## Actions / keys
 
-Define with `actions!`, bind with `cx.bind_keys([KeyBinding::new("ctrl-s", Save, None)])`, handle on the focused entity.
+Keys fire on the **focused** subtree, not globally.
+
+1. `actions!(my_view, [Save]);` or `#[gpui::action] struct Save;`
+2. On the view: `.key_context("MyView").track_focus(&self.focus_handle).on_action(cx.listener(Self::save))`
+3. `impl Focusable` + `cx.focus_handle()` + focus the view after `cx.new`
+4. `cx.bind_keys([KeyBinding::new("ctrl-s", Save, Some("MyView"))])` — the context string must match `key_context`
+
+`cx.bind_keys` in `main` with `None` context is only for app-global bindings (quit). Recipe: `actions_focus`.
+
+## Subscriptions
+
+Store `Subscription`s on the view (drop unsubscribes). `observe` = any `cx.notify()` on that entity. `subscribe` = typed `EventEmitter`. `.detach()` only for process-lifetime listeners. Recipe: `subscriptions`.
+
+## Async
+
+`cx.spawn` first argument is `WeakEntity<Self>`. Cannot hold `&mut Context` across `.await`. Keep the `Task` on the view if drop should cancel. `cx.background_spawn` is for `Send` work only. GPUI's executor is not Tokio — if you need Tokio, `gpui_tokio::init(cx)` then `gpui_tokio::Tokio::spawn`. Recipes: `spawn_weak` (one-shot), `poll_timer` (16ms loop).
 
 ## Lists
 
-- `uniform_list` — equal-height rows, cheapest
-- `list` + `ListState` — variable height, virtualized
+- `uniform_list` — equal-height rows, cheapest (recipe `uniform_list_usage`)
+- `list` + `ListState` — variable height, virtualized (recipe `list_state`)
+
+## Overlays
+
+In-window float: `deferred(anchored().anchor(Anchor::TopLeft).child(...))` (recipe `deferred_anchored`). That is not a new `Window`. OS-level menus use `WindowKind::AnchoredPopup`.
 
 ## Custom drawing (graph canvas)
 

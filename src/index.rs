@@ -191,8 +191,18 @@ fn classify(source: &str, rel: &str, ext: &str) -> Option<&'static str> {
     match ext {
         "md" | "MD" => Some("doc"),
         "rs" if is_example_rs(source, rel) => Some("example"),
+        "rs" if is_rustdoc_guide(source, rel) => Some("doc"),
         _ => None,
     }
+}
+
+/// Zed rustdoc-only guides (`src/_ownership_and_data_flow.rs`, `_accessibility.rs`).
+fn is_rustdoc_guide(source: &str, rel: &str) -> bool {
+    if source != "zed-gpui" {
+        return false;
+    }
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    name.starts_with('_') && name.ends_with(".rs")
 }
 
 fn is_example_rs(source: &str, rel: &str) -> bool {
@@ -260,13 +270,37 @@ fn push_file(
     title: &str,
     path: &Path,
 ) {
-    let Ok(body) = std::fs::read_to_string(path) else {
+    let Ok(raw) = std::fs::read_to_string(path) else {
         return;
+    };
+    let body = if kind == "doc" && path.extension().and_then(|e| e.to_str()) == Some("rs") {
+        rustdoc_module_body(&raw)
+    } else {
+        raw
     };
     if body.trim().is_empty() {
         return;
     }
     docs.push(Doc::new(id, source, kind, title, path.to_path_buf(), body));
+}
+
+/// Keep the `//!` module comment; drop the rest of a rustdoc-only source file.
+fn rustdoc_module_body(text: &str) -> String {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("//!") else {
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        };
+        out.push(rest.strip_prefix(' ').unwrap_or(rest));
+    }
+    if out.is_empty() {
+        text.to_string()
+    } else {
+        out.join("\n")
+    }
 }
 
 #[cfg(test)]
@@ -409,6 +443,35 @@ mod tests {
     #[test]
     fn title_from_path_replaces_underscores() {
         assert_eq!(title_from_path(Path::new("hello_world.rs")), "hello world");
+    }
+
+    #[test]
+    fn rustdoc_guides_are_docs_not_examples() {
+        assert_eq!(
+            classify(
+                "zed-gpui",
+                "crates/gpui/src/_ownership_and_data_flow.rs",
+                "rs"
+            ),
+            Some("doc")
+        );
+        assert_eq!(
+            classify("zed-gpui", "crates/gpui/src/_accessibility.rs", "rs"),
+            Some("doc")
+        );
+        assert_eq!(classify("zed-gpui", "crates/gpui/src/app.rs", "rs"), None);
+        assert_eq!(
+            classify("zed-gpui", "crates/gpui/examples/hello_world.rs", "rs"),
+            Some("example")
+        );
+    }
+
+    #[test]
+    fn rustdoc_module_body_keeps_inner_docs() {
+        let src = "//! # Ownership\n//!\n//! Entities live in App.\nuse gpui::App;\n";
+        let body = rustdoc_module_body(src);
+        assert!(body.contains("Entities live in App"));
+        assert!(!body.contains("use gpui"));
     }
 
     #[test]

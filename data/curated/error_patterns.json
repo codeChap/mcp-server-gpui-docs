@@ -83,5 +83,13 @@
     "fix": "use gpui_platform::application; application().run(|cx: &mut App| { ... });",
     "symbols": ["App"],
     "recipe": "window_open"
+  },
+  {
+    "id": "action_without_focus",
+    "regexes": ["no method named [`']on_action[`']", "Focusable is not implemented", "no method named [`']track_focus[`']"],
+    "explanation": "Keyboard actions require a focused element with key_context and on_action. bind_keys alone does nothing.",
+    "fix": "impl Focusable, cx.focus_handle(), .key_context(\"MyView\").track_focus(&self.focus_handle).on_action(cx.listener(...)), then KeyBinding::new(..., Some(\"MyView\")). Recipe actions_focus.",
+    "symbols": ["Focusable", "FocusHandle", "KeyBinding"],
+    "recipe": "actions_focus"
   }
 ]

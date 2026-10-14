@@ -42,9 +42,14 @@ pub const REMOTES: &[Remote] = &[
     },
     Remote {
         id: "zed-gpui",
-        title: "Zed crates/gpui (README + examples)",
+        title: "Zed gpui + gpui_platform + gpui_tokio",
         git: "https://github.com/zed-industries/zed.git",
-        sparse: &["crates/gpui"],
+        sparse: &[
+            "crates/gpui",
+            "crates/gpui_platform",
+            "crates/gpui_tokio",
+            "docs/src/development/glossary.md",
+        ],
         rev: Some(ZED_PINNED_REV),
     },
     Remote {
@@ -157,6 +162,8 @@ mod tests {
     fn zed_remote_declares_the_pin() {
         let zed = REMOTES.iter().find(|r| r.id == "zed-gpui").unwrap();
         assert_eq!(zed.rev, Some(ZED_PINNED_REV));
-        assert_eq!(zed.sparse, &["crates/gpui"]);
+        assert!(zed.sparse.contains(&"crates/gpui"));
+        assert!(zed.sparse.contains(&"crates/gpui_platform"));
+        assert!(zed.sparse.contains(&"crates/gpui_tokio"));
     }
 }

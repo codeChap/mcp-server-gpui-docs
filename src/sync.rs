@@ -62,6 +62,10 @@ pub fn gpui_crate(cache: &Path) -> PathBuf {
     zed_root(cache).join("crates").join("gpui")
 }
 
+fn sibling_crate(cache: &Path, name: &str) -> PathBuf {
+    zed_root(cache).join("crates").join(name)
+}
+
 pub fn git_rev(dir: &Path) -> Result<String> {
     let out = git_run(Some(dir), ["rev-parse", "HEAD"])?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
@@ -73,7 +77,12 @@ pub fn rebuild_oracle(cache: &Path) -> Result<String> {
         return Ok("[oracle] skipped (clone zed-gpui first)".into());
     }
     let commit = git_rev(&zed_root(cache)).unwrap_or_default();
-    let api = crate::api_index::build_api_index(&gpui, &commit)?;
+    let extras: Vec<PathBuf> = ["gpui_platform", "gpui_tokio"]
+        .into_iter()
+        .map(|name| sibling_crate(cache, name))
+        .filter(|p| p.join("src").is_dir())
+        .collect();
+    let api = crate::api_index::build_api_index_with_extras(&gpui, &extras, &commit)?;
     crate::api_index::save(&api, &crate::api_index::index_path(cache))?;
     let roots = [
         ("zed-gpui".into(), zed_root(cache)),
@@ -102,10 +111,17 @@ fn sync_one(cache: &Path, remote: &crate::sources::Remote) -> Result<String> {
     let dir = repo_dir(cache, remote.id)?;
     let pin = remote_checkout_rev(remote);
     if dir.join(".git").exists() {
+        if !remote.sparse.is_empty() {
+            write_sparse_checkout(&dir, remote.sparse)?;
+        }
         if let Some(rev) = pin.as_deref() {
             return checkout_pinned(&dir, rev);
         }
-        return pull(&dir);
+        let msg = pull(&dir)?;
+        if !remote.sparse.is_empty() {
+            rematerialize_sparse(&dir)?;
+        }
+        return Ok(msg);
     }
     if remote.sparse.is_empty() {
         clone_full(remote.git, &dir)?;
@@ -120,13 +136,30 @@ fn sync_one(cache: &Path, remote: &crate::sources::Remote) -> Result<String> {
 fn checkout_pinned(dir: &Path, rev: &str) -> Result<String> {
     if let Ok(current) = git_rev(dir) {
         if same_git_rev(&current, rev) {
+            rematerialize_sparse(dir)?;
             return Ok(format!("already at {current}"));
         }
     }
     fetch_rev(dir, rev)?;
     git_run(Some(dir), ["checkout", "--detach", "FETCH_HEAD"])?;
+    rematerialize_sparse(dir)?;
     let got = git_rev(dir).unwrap_or_default();
     Ok(format!("checked out {got}"))
+}
+
+fn write_sparse_checkout(dir: &Path, sparse: &[&str]) -> Result<()> {
+    git_run(Some(dir), ["config", "core.sparseCheckout", "true"])?;
+    let info = dir.join(".git").join("info");
+    std::fs::create_dir_all(&info)?;
+    std::fs::write(info.join("sparse-checkout"), sparse.join("\n") + "\n")?;
+    Ok(())
+}
+
+fn rematerialize_sparse(dir: &Path) -> Result<()> {
+    match git_run(Some(dir), ["read-tree", "-mu", "HEAD"]) {
+        Ok(_) => Ok(()),
+        Err(_) => Ok(()),
+    }
 }
 
 fn fetch_rev(dir: &Path, rev: &str) -> Result<()> {
@@ -160,11 +193,7 @@ fn clone_sparse(url: &str, dir: &Path, sparse: &[&str], rev: Option<&str>) -> Re
     std::fs::create_dir_all(dir)?;
     git_run(Some(dir), ["init"])?;
     git_run(Some(dir), ["remote", "add", "origin", url])?;
-    git_run(Some(dir), ["config", "core.sparseCheckout", "true"])?;
-    std::fs::write(
-        dir.join(".git/info/sparse-checkout"),
-        sparse.join("\n") + "\n",
-    )?;
+    write_sparse_checkout(dir, sparse)?;
     if let Some(rev) = rev {
         fetch_rev(dir, rev)?;
         git_run(Some(dir), ["checkout", "--detach", "FETCH_HEAD"])?;
